@@ -46,6 +46,10 @@ node server/create_admin_account.js
 Create provider/config.json based on provider/config_template.json. Edit "adminAddress" and "adminGroupId". "adminGroupId" is a random string.
 
 ### Deploy contracts
+* Attention  
+  At September 1, 2017, truffle should be used at version 3.4.5.  
+  (There is a bug in web3.js related with truffle version 3.4.6 or later, and the deployment does not work properly.)  
+  https://github.com/ethereum/web3.js/issues/990
 ```bash
 cd oss-medical-record/provider
 truffle migrate
