@@ -98,7 +98,7 @@
             $('#address-area').css('display', 'block');
 
             var contract = ETH_UTIL.getContract(patientAccount);
-            contract.getData('', 'History', 'getObjectId', [patientAccount.getAddress()], HISTORY_ABI, function(err, res) {
+            contract.getData('', 'ProxyController', 'getHistoryPatientDataObjectId', [HISTORIES_ADDRESS, patientAccount.getAddress()], PROXY_CONTROLLER_ABI, function(err, res) {
                 if (err) {
                     console.error(err);
                     alert('error. check console.');
@@ -137,7 +137,7 @@
                 return;
             }
 
-            contract.call('', 'Organization', 'getName', [hospitalId], ORGANIZATION_ABI, function(err, res) {
+            contract.call('', 'ProxyController', 'getOrganizationName', [ORGANIZATIONS_ADDRESS, hospitalId], PROXY_CONTROLLER_ABI, function(err, res) {
                 if (err) {
                     console.error(err);
                     alert('failed to get hospital name');
@@ -151,7 +151,7 @@
                 $('#hospital-area').css('display', 'block');
             });
 
-            contract.call('', 'History', 'isAllowGroup', [hospitalId, patientAccount.getAddress()], HISTORY_ABI, function(err, res) {
+            contract.call('', 'ProxyController', 'isHistoryAllowGroup', [HISTORIES_ADDRESS, hospitalId, patientAccount.getAddress()], PROXY_CONTROLLER_ABI, function(err, res) {
                 if (err) {
                     console.error(err);
                     alert('failed to get permission');
@@ -170,8 +170,6 @@
         var sending = false;
         var registerPatient = function() {
 
-            var timestamp = Math.floor(new Date().getTime() / 1000);
-
             if (sending) return;
             sending = true;
 
@@ -187,23 +185,47 @@
                     sex: sex,
                     note: note
                 }
-                ETH_UTIL.getContract(_newAccount).sendData('', 'History', 'create', DEMO_UTIL.createRandomId(32), JSON.stringify(data), [Math.floor(new Date().getTime() / 1000)], HISTORY_ABI, function(err, res) {
-                    sending = false;
+                var objectId = DEMO_UTIL.createRandomId(32);
+                var dataHash = '0x' + ethClient.utils.hash(JSON.stringify(data));
+                console.log(dataHash);
+                var nonce, sign;
+                var contract = ETH_UTIL.getContract(_newAccount);
+                contract.call('', 'ProxyController', 'getNonceInHistories', [HISTORIES_ADDRESS, _newAccount.getAddress()], PROXY_CONTROLLER_ABI, function(err, res) {
                     if (err) {
                         console.error(err);
-                        alert('error. check console.');
+                        alert('Failed to get hospital information.');
                         return;
                     }
-
                     console.log(res);
-                    LOCAL_STORAGE.setPatientAccount(_newAccount);
-                    DEMO_UTIL.okDialog(
-                        demoMsg("patient.dialog.key-created.title"),
-                        demoMsg("patient.dialog.key-created.msg"),
-                        function() {
-                            window.location.href = './patient.html';
+                    nonce = res[0].toString(10);
+                    console.log(HISTORIES_ADDRESS);
+                    _newAccount.sign('', ethClient.utils.hashBySolidityType(['address', 'bytes32', 'bytes32', 'bytes32', 'uint256'], [HISTORIES_ADDRESS, 'createHistoryWithSign', objectId, dataHash, nonce]), function(err, res) {
+                        if (err) {
+                            console.error(err);
+                            alert('Failed to get hospital information.');
+                            return;
                         }
-                    );
+                        console.log(res);
+                        sign = res;
+                        contract.sendData('', 'ProxyController', 'createHistory', objectId, JSON.stringify(data), [HISTORIES_ADDRESS, nonce, sign], PROXY_CONTROLLER_ABI, function(err, res) {
+                            sending = false;
+                            if (err) {
+                                console.error(err);
+                                alert('error. check console.');
+                                return;
+                            }
+
+                            console.log(res);
+                            LOCAL_STORAGE.setPatientAccount(_newAccount);
+                            DEMO_UTIL.okDialog(
+                                demoMsg("patient.dialog.key-created.title"),
+                                demoMsg("patient.dialog.key-created.msg"),
+                                function() {
+                                    window.location.href = './patient.html';
+                                }
+                            );
+                        });
+                    });
                 });
             });
         }
@@ -213,23 +235,46 @@
         var permitHospital = function() {
             if (permitRequest) return;
             permitRequest = true;
-            ETH_UTIL.getContract(LOCAL_STORAGE.getPatientAccount()).sendTransaction('', 'History', 'addAllowGroup', [Math.floor(new Date().getTime() / 1000), LOCAL_STORAGE.getHospitalId()], HISTORY_ABI, function(err, res) {
-                permitRequest = false;
+            var nonce, sign;
+            var account = LOCAL_STORAGE.getPatientAccount();
+            var contract = ETH_UTIL.getContract(LOCAL_STORAGE.getPatientAccount());
+            var hospitalId = LOCAL_STORAGE.getHospitalId();
+            contract.call('', 'ProxyController', 'getNonceInHistories', [HISTORIES_ADDRESS, account.getAddress()], PROXY_CONTROLLER_ABI, function(err, res) {
                 if (err) {
                     console.error(err);
                     alert('error');
                     return;
                 }
-
                 console.log(res);
-                DEMO_UTIL.okDialog(
-                    demoMsg("patient.dialog.add-permission.title"),
-                    demoMsg("patient.dialog.add-permission.msg"),
-                    function() {
-                        window.location.href = './doctor.html';
+                nonce = res[0].toString(10);
+                account.sign('', ethClient.utils.hashBySolidityType(['address', 'bytes32', 'bytes32', 'uint256'], [HISTORIES_ADDRESS, 'addAllowGroupWithSign', hospitalId, nonce]), function(err, res) {
+                    if (err) {
+                        console.error(err);
+                        alert('error');
+                        return;
                     }
-                );
-            });
+                    console.log(res);
+                    sign = res;
+
+                    contract.sendTransaction('', 'ProxyController', 'addHistoryAllowGroup', [HISTORIES_ADDRESS, hospitalId, nonce, sign], PROXY_CONTROLLER_ABI, function(err, res) {
+                        permitRequest = false;
+                        if (err) {
+                            console.error(err);
+                            alert('error');
+                            return;
+                        }
+
+                        console.log(res);
+                        DEMO_UTIL.okDialog(
+                            demoMsg("patient.dialog.add-permission.title"),
+                            demoMsg("patient.dialog.add-permission.msg"),
+                            function() {
+                                window.location.href = './doctor.html';
+                            }
+                        );
+                    });
+                })
+            })
         }
 
         /* add prohibit to demo hospital */
@@ -237,22 +282,44 @@
         var prohibitHospital = function() {
             if (prohibitRequest) return;
             prohibitRequest = true;
-            ETH_UTIL.getContract(LOCAL_STORAGE.getPatientAccount()).sendTransaction('', 'History', 'removeAllowGroup', [Math.floor(new Date().getTime() / 1000), LOCAL_STORAGE.getHospitalId()], HISTORY_ABI, function(err, res) {
-                prohibitRequest = false;
+            var nonce, sign;
+            var account = LOCAL_STORAGE.getPatientAccount();
+            var contract = ETH_UTIL.getContract(LOCAL_STORAGE.getPatientAccount());
+            var hospitalId = LOCAL_STORAGE.getHospitalId();
+            contract.call('', 'ProxyController', 'getNonceInHistories', [HISTORIES_ADDRESS, account.getAddress()], PROXY_CONTROLLER_ABI, function(err, res) {
                 if (err) {
                     console.error(err);
                     alert('error');
                     return;
                 }
-
                 console.log(res);
-                DEMO_UTIL.okDialog(
-                    demoMsg("patient.dialog.remove-permission.title"),
-                    demoMsg("patient.dialog.remove-permission.msg"),
-                    function() {
-                        window.location.href = './doctor.html';
+                nonce = res[0].toString(10);
+                account.sign('', ethClient.utils.hashBySolidityType(['address', 'bytes32', 'bytes32', 'uint256'], [HISTORIES_ADDRESS, 'removeAllowGroupWithSign', hospitalId, nonce]), function(err, res) {
+                    if (err) {
+                        console.error(err);
+                        alert('error');
+                        return;
                     }
-                );
+                    console.log(res);
+                    sign = res;
+                    contract.sendTransaction('', 'ProxyController', 'removeHistoryAllowGroup', [HISTORIES_ADDRESS, hospitalId, nonce, sign], PROXY_CONTROLLER_ABI, function(err, res) {
+                        prohibitRequest = false;
+                        if (err) {
+                            console.error(err);
+                            alert('error');
+                            return;
+                        }
+
+                        console.log(res);
+                        DEMO_UTIL.okDialog(
+                            demoMsg("patient.dialog.remove-permission.title"),
+                            demoMsg("patient.dialog.remove-permission.msg"),
+                            function() {
+                                window.location.href = './doctor.html';
+                            }
+                        );
+                    });
+                });
             });
         }
     </script>

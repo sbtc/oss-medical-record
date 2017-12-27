@@ -76,7 +76,7 @@
                 return;
             }
 
-            ETH_UTIL.getContract(hospitalAccount).call('', 'Organization', 'getName', [hospitalId], ORGANIZATION_ABI, function(err, res) {
+            ETH_UTIL.getContract(hospitalAccount).call('', 'ProxyController', 'getOrganizationName', [ORGANIZATIONS_ADDRESS, hospitalId], PROXY_CONTROLLER_ABI, function(err, res) {
                 if (err) {
                     console.error(err);
                     alert('Failed to get hospital information.');
@@ -114,36 +114,63 @@
                 return;
             }
 
+            var key = DEMO_UTIL.createRandomId(32);
+
             if (sending) return;
             sending = true;
 
             ETH_UTIL.generateNewAccount(function(_newAccount) {
-                _newAccount.sign('', ethClient.utils.hashBySolidityType(['uint256', 'bytes32'], [timestamp, hexName]), function(err, sign) {
+                var nonce, sign;
+                var contract = ETH_UTIL.getContract(_newAccount);
+                contract.call('', 'ProxyController', 'getNonceInOrganizations', [ORGANIZATIONS_ADDRESS, _newAccount.getAddress()], PROXY_CONTROLLER_ABI, function(err, res) {
                     if (err) {
                         console.error(err);
-                        alert(err);
-                        sending = false;
+                        alert('Failed to get hospital information.');
                         return;
                     }
-                    var data = {
-                        timestamp: timestamp,
-                        name: hexName,
-                        sign: sign
-                    };
-                    $.post('./api/hospital', data, function(data) {
-                        console.log(data);
-                        LOCAL_STORAGE.setHospitalAccount(_newAccount);
-                        LOCAL_STORAGE.setHospitalId(data.hospital.id);
-                        DEMO_UTIL.okDialog(
-                            demoMsg("hospital.dialog.key-created.title"),
-                            demoMsg("hospital.dialog.key-created.msg"),
-                            function() {
-                                window.location.href = './hospital.html';
+                    console.log(res);
+                    nonce = res[0].toString(10);
+                    _newAccount.sign('', ethClient.utils.hashBySolidityType(['address', 'bytes32', 'bytes32', 'bytes32', 'uint256'], [ORGANIZATIONS_ADDRESS, 'createOrganizationWithSign', key, hexName, nonce]), function(err, res) {
+                        if (err) {
+                            console.error(err);
+                            alert('Failed to get hospital information.');
+                            return;
+                        }
+                        console.log(res);
+                        sign = res;
+                        contract.sendTransaction('', 'ProxyController', 'createOrganization', [ORGANIZATIONS_ADDRESS, key, hexName, nonce, sign], PROXY_CONTROLLER_ABI, function(err, res) {
+                            if (err) {
+                                console.error(err);
+                                alert('Failed to get hospital information.');
+                                return;
                             }
-                        );
-                        return;
+                            console.log(res);
+                            var txHash = res;
+                            var getTransactionReceipt = function(txHash) {
+                                contract.getTransactionReceipt(txHash, function(err, res) {
+                                    if (err) {
+                                        console.error(err);
+                                        alert('Failed to get hospital information.');
+                                        return;
+                                    } else if (res) {
+                                        LOCAL_STORAGE.setHospitalAccount(_newAccount);
+                                        LOCAL_STORAGE.setHospitalId(key);
+                                        DEMO_UTIL.okDialog(
+                                            demoMsg("hospital.dialog.key-created.title"),
+                                            demoMsg("hospital.dialog.key-created.msg"),
+                                            function() {
+                                                window.location.href = './hospital.html';
+                                            }
+                                        );
+                                        return;
+                                    }
+                                    else setTimeout(function() { getTransactionReceipt(txHash); }, 5000);
+                                });
+                            }
+                            getTransactionReceipt(txHash);
+                        });
                     });
-                })
+                });
             });
         }
 

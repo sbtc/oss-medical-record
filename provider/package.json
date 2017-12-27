@@ -1,0 +1,15 @@
+{
+  "name": "oss-medical-record-contract",
+  "version": "1.0.0",
+  "description": "",
+  "main": "truffle.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "solidity": "git+https://github.com/zcom-cloud-blockchain/solidity.git#feature/for_production",
+    "zcom-contracts": "git+https://github.com/zcom-cloud-blockchain/solidity.git#feature/for_production"
+  }
+}

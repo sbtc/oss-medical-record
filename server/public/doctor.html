@@ -99,7 +99,7 @@
                 return;
             }
 
-            ETH_UTIL.getContract(doctorAccount).call('', 'Organization', 'getName', [hospitalId], ORGANIZATION_ABI, function(err, res) {
+            ETH_UTIL.getContract(doctorAccount).call('', 'ProxyController', 'getOrganizationName', [ORGANIZATIONS_ADDRESS, hospitalId], PROXY_CONTROLLER_ABI, function(err, res) {
                 if (err) {
                     console.error(err);
                     alert('failed to get hospital name');
@@ -125,29 +125,46 @@
             if (sending) return;
             sending = true;
 
+            var hospitalAccount = LOCAL_STORAGE.getHospitalAccount();
+            var hospitalContract = new ethClient.AltExecCnsContract(hospitalAccount, CNS);
+
             // check eth-util.js
             ETH_UTIL.generateNewAccount(function(_newAccount) {
-
-                // registering on same browser is not appropriate for real business (just for DEMO).
-                // hospital key should protect more secure, like saving on other terminal.
-                var hospitalAccount = LOCAL_STORAGE.getHospitalAccount();
-                var hospitalContract = new ethClient.AltExecCnsContract(hospitalAccount, CNS);
-                hospitalContract.sendTransaction('', 'Organization', 'addMember', [Math.floor(new Date().getTime() / 1000), LOCAL_STORAGE.getHospitalId(), _newAccount.getAddress()], ORGANIZATION_ABI, function(err, res) {
-                    sending = false;
+                var nonce, sign;
+                hospitalContract.call('', 'ProxyController', 'getNonceInOrganizations', [ORGANIZATIONS_ADDRESS, hospitalAccount.getAddress()], PROXY_CONTROLLER_ABI, function(err, res) {
                     if (err) {
                         console.error(err);
                         alert('failed to add doctor. check console log.');
                         return;
                     }
                     console.log(res);
-                    LOCAL_STORAGE.setDoctorAccount(_newAccount);
-                    DEMO_UTIL.okDialog(
-                        demoMsg("doctor.dialog.key-created.title"),
-                        demoMsg("doctor.dialog.key-created.msg"),
-                        function() {
-                            window.location.href = './doctor.html';
+                    nonce = res[0].toString(10);
+                    hospitalAccount.sign('', ethClient.utils.hashBySolidityType(['address', 'bytes32', 'address', 'uint256'], [ORGANIZATIONS_ADDRESS, 'addMemberWithSign', _newAccount.getAddress(), nonce]), function(err, res) {
+                        if (err) {
+                            console.error(err);
+                            alert('failed to add doctor. check console log.');
+                            return;
                         }
-                    );
+                        console.log(res);
+                        sign = res;
+                        hospitalContract.sendTransaction('', 'ProxyController', 'addOrganizationMember', [ORGANIZATIONS_ADDRESS, _newAccount.getAddress(), nonce, sign], PROXY_CONTROLLER_ABI, function(err, res) {
+                            sending = false;
+                            if (err) {
+                                console.error(err);
+                                alert('failed to add doctor. check console log.');
+                                return;
+                            }
+                            console.log(res);
+                            LOCAL_STORAGE.setDoctorAccount(_newAccount);
+                            DEMO_UTIL.okDialog(
+                                demoMsg("doctor.dialog.key-created.title"),
+                                demoMsg("doctor.dialog.key-created.msg"),
+                                function() {
+                                    window.location.href = './doctor.html';
+                                }
+                            );
+                        });
+                    });
                 });
             });
         }
@@ -176,7 +193,7 @@
             loading = true;
 
             var contract = ETH_UTIL.getContract(LOCAL_STORAGE.getDoctorAccount());
-            contract.getData('', 'History', 'getObjectId', [patientAddress], HISTORY_ABI, function(err, res) {
+            contract.getData('', 'ProxyController', 'getHistoryPatientDataObjectId', [HISTORIES_ADDRESS, patientAddress], PROXY_CONTROLLER_ABI, function(err, res) {
                 if (err) {
                     loading = false;
                     console.error(err);
@@ -197,7 +214,7 @@
                         var histories = $('#histories');
                         histories.empty();
 
-                        contract.getData('', 'History', 'getRecordObjectIds', [$('#patient-address').val()], HISTORY_ABI, function(err, res) {
+                        contract.getData('', 'ProxyController', 'getHistoryRecordDataObjectIds', [HISTORIES_ADDRESS, $('#patient-address').val()], PROXY_CONTROLLER_ABI, function(err, res) {
                             loading = false;
                             if (err) {
                                 console.error(err);
@@ -262,21 +279,45 @@
                 content: content
             };
             var sending = true;
-            ETH_UTIL.getContract(LOCAL_STORAGE.getDoctorAccount()).sendData('', 'Record', 'create', DEMO_UTIL.createRandomId(32), JSON.stringify(data), [Math.floor(new Date().getTime() / 1000), DEMO_UTIL.createRandomId(32), patientAddress], RECORD_ABI, function(err, res) {
+            var nonce, sign;
+            var account = LOCAL_STORAGE.getDoctorAccount();
+            var contract = ETH_UTIL.getContract(LOCAL_STORAGE.getDoctorAccount());
+            var objectId = DEMO_UTIL.createRandomId(32);
+            var dataHash = '0x' + ethClient.utils.hash(JSON.stringify(data));
+            console.log(dataHash);
+            contract.call('', 'ProxyController', 'getNonceInHistories', [HISTORIES_ADDRESS, account.getAddress()], PROXY_CONTROLLER_ABI, function(err, res) {
                 if (err) {
-                    writing = false;
                     console.error(err);
                     alert('error');
-                } else {
-                    writing = false;
-                    data.unconfirmedTimestamp = new Date().getTime();
-                    addHistory(data);
-                    DEMO_UTIL.okDialog(
-                        demoMsg("doctor.dialog.write-complete.title"),
-                        demoMsg("doctor.dialog.write-complete.msg")
-                    );
-                    console.log(res);
+                    return;
                 }
+                console.log(res);
+                nonce = res[0].toString(10);
+                account.sign('', ethClient.utils.hashBySolidityType(['address', 'bytes32', 'address', 'bytes32', 'bytes32', 'uint256'], [HISTORIES_ADDRESS, 'addRecordWithSign', patientAddress, objectId, dataHash, nonce]), function(err, res) {
+                    if (err) {
+                        console.error(err);
+                        alert('error');
+                        return;
+                    }
+                    console.log(res);
+                    sign = res;
+                    contract.sendData('', 'ProxyController', 'addHistoryRecord', objectId, JSON.stringify(data), [HISTORIES_ADDRESS, patientAddress, nonce, sign], PROXY_CONTROLLER_ABI, function(err, res) {
+                        if (err) {
+                            writing = false;
+                            console.error(err);
+                            alert('error');
+                        } else {
+                            writing = false;
+                            data.unconfirmedTimestamp = new Date().getTime();
+                            addHistory(data);
+                            DEMO_UTIL.okDialog(
+                                demoMsg("doctor.dialog.write-complete.title"),
+                                demoMsg("doctor.dialog.write-complete.msg")
+                            );
+                            console.log(res);
+                        }
+                    });
+                });
             });
         };
 

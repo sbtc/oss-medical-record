@@ -1,5 +1,6 @@
 var ETH_UTIL = {};
-var BASE_URL = 'https://beta.blockchain.z.com';
+//var BASE_URL = 'https://beta.blockchain.z.com';
+var BASE_URL = 'http://192.168.15.10:3030';
 
 /** Create client Key on this browse. and save to local storage (for demo). */
 ETH_UTIL.generateNewAccount = function (callback) {
